@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Deadlight</title>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;900&family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#0e1316;--bone:#e8e2d0;--blood:#c8372d;--rot:#8fb25c;--flare:#ffa13d;--panel:#1a2125;--dim:#7d8a8f;
+--hd:'Big Shoulders Display',Impact,'Arial Narrow',sans-serif;--tx:'Special Elite','Courier New',monospace;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--bone);font-family:var(--tx);overflow:hidden}
+canvas{display:block;position:fixed;inset:0;cursor:none}
+#hud{position:fixed;left:14px;right:14px;top:calc(10px + env(safe-area-inset-top,0px));display:flex;justify-content:space-between;pointer-events:none;gap:12px}
+#hud>div{display:flex;flex-direction:column;gap:6px}
+.bar{width:220px;height:14px;background:#0008;border:2px solid var(--bone)}
+#hp{height:100%;background:var(--blood);width:100%}
+.big{font-family:var(--hd);font-weight:900;font-size:34px;line-height:1;letter-spacing:.02em}
+.sm{font-size:14px;color:var(--dim)}
+#ammo{position:fixed;right:18px;bottom:calc(16px + env(safe-area-inset-bottom,0px));text-align:right;pointer-events:none}
+#fx{position:fixed;left:14px;bottom:calc(16px + env(safe-area-inset-bottom,0px));font-size:15px;pointer-events:none;line-height:1.5}
+#msg{position:fixed;left:0;right:0;top:28%;text-align:center;font-family:var(--hd);font-weight:900;font-size:min(14vw,110px);opacity:0;pointer-events:none;color:var(--bone);text-shadow:0 0 30px #000}
+#ov{position:fixed;inset:0;background:#080b0dee;display:none;overflow:auto;padding:24px;z-index:5}
+#ov.show{display:block}
+.wrap{max-width:900px;margin:0 auto}
+h1{font-family:var(--hd);font-weight:900;font-size:min(22vw,150px);line-height:.85;margin:6vh 0 12px;letter-spacing:-.01em}
+h2{font-family:var(--hd);font-weight:900;font-size:34px;margin:22px 0 10px}
+p{max-width:60ch;line-height:1.5}
+button{font-family:var(--hd);font-weight:700;font-size:22px;background:var(--bone);color:#111;border:0;padding:10px 20px;cursor:pointer}
+button:hover:not(:disabled){background:var(--flare)}button:focus-visible{outline:3px solid var(--flare);outline-offset:2px}
+button:disabled{opacity:.35;cursor:not-allowed}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.card{text-align:left;background:var(--panel);color:var(--bone);border:2px solid #34414a;padding:14px;font-family:var(--tx);font-size:15px;line-height:1.35}
+.card b{display:block;font-family:var(--hd);font-size:26px;color:var(--flare);margin-bottom:4px}
+.card:hover:not(:disabled){background:#243038;border-color:var(--flare);color:var(--bone)}
+.card.got{border-color:var(--rot)}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.k{color:var(--flare)}
+#tut{position:fixed;inset:0;background:#080b0df5;z-index:9;display:none;overflow:auto;padding:22px}#tut.show{display:block}
+#tut h2{margin:0 0 10px}#tut ul{margin:6px 0;padding-left:20px;line-height:1.5;font-size:15px}#tut li{margin:3px 0}
+.tz{display:flex;gap:12px;align-items:center;margin:6px 0;font-size:15px;line-height:1.35}.tz div{flex:1}.zs{background:#43565f;border-radius:6px;flex:none}
+.pg{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:4px 28px}.dot{display:inline-block;width:14px;height:14px;border-radius:50%;margin-right:6px;vertical-align:-2px}
+.sb{font-size:16px;padding:6px 12px}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="hud"><div><div class="bar"><div id="hp"></div></div><div class="sm" id="hpt"></div><div class="big" id="pts"></div></div>
+<div style="text-align:right"><div class="big" id="wave"></div><div class="sm" id="kills"></div></div></div>
+<div id="fx"></div><div id="ammo"></div><div id="msg"></div>
+<div id="tut"></div>
+<div id="ov" class="show"><div class="wrap">
+<h1>DEADLIGHT</h1>
+<p>The dead are walking toward you. Survive each wave, spend your points, and stack perks into a build.</p>
+<p><span class="k">WASD</span> move &nbsp; <span class="k">Mouse</span> aim and fire &nbsp; <span class="k">R</span> reload &nbsp; <span class="k">1–8</span> switch weapon &nbsp; <span class="k">Shift / Space</span> dash<br>Built for desktop with a mouse and keyboard.</p>
+<p><button onclick="showTut(0)">How to play</button></p><h2>Game speed</h2><div class="row" id="spdrow"></div><h2>Choose your difficulty</h2><div class="cards" id="dc"></div></div></div>
+<script>
+let ctx;const cv=document.getElementById('c'),lc=document.createElement('canvas'),lx=lc.getContext('2d');ctx=cv.getContext('2d');
+const $=id=>document.getElementById(id);let W,H;
+function rs(){W=cv.width=lc.width=innerWidth;H=cv.height=lc.height=innerHeight}addEventListener('resize',rs);rs();
+const WW=2200,WH=1500,R=Math.random,A=v=>Array(8).fill(v),BN=['THE ABOMINATION','THE JUGGERNAUT','THE WARLOCK','THE BROOD MOTHER'];
+const WEAPONS=[
+{n:'Pistol',ef:.6,dmg:28,rate:300,mag:12,rl:900,sp:.04,pel:1,spd:950,life:.7,pierce:1,cost:0},
+{n:'SMG',dmg:14,rate:85,mag:35,rl:1300,sp:.08,pel:1,spd:950,life:.6,pierce:1,cost:400},
+{n:'Shotgun',dmg:19,rate:750,mag:6,rl:1700,sp:.22,pel:10,spd:850,life:.55,pierce:1,cost:400},
+{n:'Rail Rifle',dmg:78,rate:650,mag:5,rl:1700,sp:.01,pel:1,spd:1500,life:.9,pierce:2,rng:.06,cost:400},
+{n:'Launcher',ef:.6,dmg:125,rate:900,mag:3,rl:1800,sp:.02,pel:1,spd:600,life:1.2,pierce:0,expl:88,cost:400},
+{n:'Arc Gun',dmg:30,rate:220,mag:20,rl:1500,sp:.05,pel:1,spd:1100,life:.5,pierce:0,chain:3,cost:400},
+{n:'Flamethrower',dmg:11,rate:40,mag:100,rl:1800,sp:.2,pel:1,spd:640,life:.55,pierce:5,fire:1,cost:400},
+{n:'Minigun',dmg:11,rate:140,mag:150,rl:2800,sp:.12,pel:1,spd:950,life:.6,pierce:1,ramp:1.2,rg:.045,cost:400}];
+const ZT={walker:{hp:40,spd:62,r:13,dmg:10,pts:10,c:'#7fa35a'},runner:{hp:24,spd:125,r:11,dmg:8,pts:15,c:'#b9c46c'},
+brute:{hp:260,spd:48,r:23,dmg:25,pts:40,c:'#566f46'},spitter:{hp:45,spd:58,r:13,dmg:12,pts:25,c:'#7fd3b0',rng:1},
+wraith:{hp:120,spd:115,r:12,dmg:10,pts:60,c:'#b48cff'},
+bloater:{hp:110,spd:42,r:19,dmg:8,pts:30,c:'#c9c15a'},
+leaper:{hp:35,spd:70,r:11,dmg:12,pts:25,c:'#d98a4a',lp:1},
+riot:{hp:150,spd:55,r:16,dmg:14,pts:35,c:'#6f8da8',arm:.5},
+hive:{hp:120,spd:50,r:20,dmg:10,pts:35,c:'#a05a8a'},
+necro:{hp:80,spd:55,r:14,dmg:0,pts:50,c:'#5a4a8a',keep:1},
+crawler:{hp:14,spd:150,r:8,dmg:6,pts:4,c:'#d9a0a0'},
+boss:{hp:1600,spd:58,r:40,dmg:35,pts:500,c:'#7a4560'}};
+const PERKS=[
+{id:'dmg',n:'Hollow Points',d:'+25% damage',f:S=>S.dmg*=1.25},
+{id:'rate',n:'Trigger Happy',d:'+20% fire rate',f:S=>S.rate*=1.2},
+{id:'rel',n:'Quick Hands',d:'Reload 30% faster',f:S=>S.rel*=.7},
+{id:'mag',n:'Deep Pockets',d:'+40% magazine size',f:S=>S.mag*=1.4},
+{id:'hp',n:'Iron Hide',d:'+40 max HP and heal 40',f:(S,g)=>{S.hp+=40;g.p.hp=Math.min(S.hp,g.p.hp+40)}},
+{id:'spd',n:'Sprinter',d:'+12% move speed',f:S=>S.spd*=1.12},
+{id:'leech',n:'Leech',d:'Heal 0.8 HP per kill (healing is capped at 1.5% max HP per second)',f:S=>S.leech+=2},
+{id:'crit',n:'Marksman',d:'+15% crit chance. Crits deal 2.5×',f:S=>S.crit+=.15},
+{id:'pierce',n:'Overpenetration',d:'Bullets pierce +1 zombie',f:S=>S.pierce++},
+{id:'expl',n:'Volatile Blood',d:'Kills explode. Stacks for bigger blasts',f:S=>S.expl++},
+{id:'rev',n:'Second Wind',d:'Revive once at half HP with a shockwave',f:S=>S.rev=1,one:1},
+{id:'scav',n:'Scavenger',d:'Pickup reach +80 and +25% points',f:S=>{S.mag2+=80;S.pts*=1.25}},
+{id:'dash',n:'Phantom Step',d:'Dash cooldown −40%, +1 extra dash per cooldown, dashes go 25% farther',syn:'Dash Strike hits 40% harder per stack',a:g=>g.perks.ds,f:S=>{S.dash*=.6;S.ph++}},
+{id:'adr',n:'Adrenaline',d:'+35% fire rate below 40% HP',f:S=>S.adr=1,one:1},
+{id:'snip',n:'Sniper’s Eye',d:'Damage rises with distance: +6% per 100px, up to 900px',syn:'Rail Rifle gets 2.5× the bonus',a:g=>g.own[3],f:S=>S.rng+=.06},
+{id:'pb',n:'Point Blank',d:'+50% damage within close range',syn:'Shotgun gets nearly double',a:g=>g.own[2],f:S=>S.pb++},
+{id:'gs',n:'Gunslinger',d:'Pistol only: +60% damage and +40% fire rate',syn:'Needs the pistol equipped',a:g=>g.p.cur===0,f:S=>S.gs++},
+{id:'hose',n:'Bullet Hose',d:'Fire rate ramps up while you keep shooting',syn:'SMG ramps twice as fast',a:g=>g.own[1],f:S=>S.hose++},
+{id:'demo',n:'Demolitionist',d:'+35% blast radius on all explosions',syn:'Launcher and Volatile Blood',a:g=>g.own[4]||g.perks.expl,f:S=>S.demo++},
+{id:'burn',n:'Incendiary Rounds',d:'Hits set zombies on fire for 3s',syn:'Burning kills make Volatile Blood hit 60% harder',a:g=>g.perks.expl,f:S=>S.burn++},
+{id:'frost',n:'Frostbite',d:'Hits slow zombies. Slowed zombies take +40% damage',syn:'Freeze pickups count as slowed',a:g=>g.fx.freeze>0,f:S=>S.frost++},
+{id:'exec',n:'Executioner',d:'+80% damage to zombies below 30% HP',syn:'Pairs with Incendiary Rounds',a:g=>g.perks.burn,f:S=>S.exec++},
+{id:'bl',n:'Bloodlust',d:'Each kill within 4s stacks +6% damage (max 8)',syn:'Pairs with SMG and Bullet Hose',a:g=>g.own[1]||g.perks.hose,f:S=>S.bl++},
+{id:'mom',n:'Momentum',d:'+20% damage while moving',syn:'Stacks well with Sprinter',a:g=>g.perks.spd,f:S=>S.mom++},
+{id:'fr',n:'Reload Frenzy',d:'After a reload, +40% fire rate for 4s',syn:'Quick Hands shortens the downtime',a:g=>g.perks.rel,f:S=>S.fr++},
+{id:'ds',n:'Dash Strike',d:'Dashing through zombies deals 70 damage (scales with wave) and ends in a shockwave',syn:'Phantom Step: +40% dash damage per stack, Demolitionist: bigger shockwave',a:g=>g.perks.dash,f:S=>S.ds++},
+{id:'thorn',n:'Thorns',d:'Zombies that hit you take 35 damage and get knocked back',syn:'Iron Hide keeps you alive longer',a:g=>g.perks.hp,f:S=>S.thorn++},
+{id:'luck',n:'Lucky Charm',d:'Zombies drop items twice as often',syn:'Scavenger pulls drops in from farther',a:g=>g.perks.scav,f:S=>S.luck++},
+{id:'desp',n:'Desperado',d:'Up to +60% damage as your HP drops',syn:'Adrenaline stacks on top',a:g=>g.perks.adr,f:S=>S.desp++},
+{id:'eng',n:'Engineer',d:'Turrets last 4s longer, hit 50% harder and fire 30% faster',syn:'Needs a turret pickup',a:g=>g.fx.turret>0,f:S=>S.eng++}];
+const WP=(w,id,n,d,f)=>PERKS.push({id,n,d,w,max:3,syn:WEAPONS[w].n+' only',a:g=>g.p.cur===w,f});
+WP(0,'p1','Hand Cannon','Pistol: +40% damage, bullets pierce +1',S=>{S.wd[0]*=1.4;S.wp[0]++});
+WP(0,'p2','Double Tap','Pistol fires a second bullet at 60% damage',S=>S.wx[0]++);
+WP(0,'p3','Speed Loader','Pistol: +15% fire rate, +50% magazine, 40% faster reload',S=>{S.wr[0]*=1.15;S.wm[0]*=1.5;S.wl[0]*=.6});
+WP(1,'s1','Armor Piercing','SMG: +15% damage, pierces +1, ignores armor',S=>{S.wd[1]*=1.15;S.wp[1]++;S.ap[1]=1});
+WP(1,'s2','Extended Drum','SMG: +60% magazine, 25% faster reload, +10% fire rate',S=>{S.wm[1]*=1.6;S.wl[1]*=.75;S.wr[1]*=1.1});
+WP(1,'s3','Overclock','SMG: +30% fire rate, +10% damage',S=>{S.wr[1]*=1.3;S.wd[1]*=1.1});
+WP(2,'g1','Extra Shells','Shotgun fires 3 more pellets',S=>S.wx[2]+=3);
+WP(2,'g2','Dragon’s Breath','Shotgun: +10% damage, pellets ignite zombies',S=>{S.wd[2]*=1.1;S.wf[2]=1});
+WP(2,'g3','Full Choke','Shotgun: 50% tighter spread, +30% damage, pierces +1',S=>{S.wsp[2]*=.5;S.wd[2]*=1.3;S.wp[2]++});
+WP(3,'r1','Ion Lance','Rail Rifle: pierces +1 and hits 12% harder after each zombie',S=>{S.wp[3]++;S.wrr[3]+=.12});
+WP(3,'r2','Match Grade','Rail Rifle: +35% damage, +15% crit chance',S=>{S.wd[3]*=1.35;S.wc[3]+=.15});
+WP(3,'r3','Capacitor','Rail Rifle: +35% fire rate, +40% magazine, 20% faster reload',S=>{S.wr[3]*=1.35;S.wm[3]*=1.4;S.wl[3]*=.8});
+WP(4,'l1','Twin Tubes','Launcher fires a second rocket at 60% damage',S=>S.wx[4]++);
+WP(4,'l2','Bigger Boom','Launcher: +40% blast radius, +25% damage',S=>{S.wb[4]*=1.4;S.wd[4]*=1.25});
+WP(4,'l3','Napalm Warheads','Launcher: +10% damage, 25% faster reload, blasts ignite zombies',S=>{S.wd[4]*=1.1;S.wl[4]*=.75;S.wf[4]=1});
+WP(5,'a1','Tesla Coil','Arc Gun: arcs hit 2 more zombies',S=>S.wch[5]+=2);
+WP(5,'a2','Static Charge','Arc Gun: +35% damage, +15% fire rate',S=>{S.wd[5]*=1.35;S.wr[5]*=1.15});
+WP(5,'a3','Capacitor Bank','Arc Gun: +50% magazine, 30% faster reload',S=>{S.wm[5]*=1.5;S.wl[5]*=.7});
+WP(6,'f1','Napalm Mix','Flamethrower: +40% damage',S=>S.wd[6]*=1.4);
+WP(6,'f2','Pressure Tank','Flamethrower: +60% magazine, 30% faster reload',S=>{S.wm[6]*=1.6;S.wl[6]*=.7});
+WP(6,'f3','Wide Nozzle','Flamethrower: pierces +3 zombies, +20% damage',S=>{S.wp[6]+=3;S.wd[6]*=1.2});
+WP(7,'m1','Belt Fed','Minigun: +60% magazine, 25% faster reload',S=>{S.wm[7]*=1.6;S.wl[7]*=.75});
+WP(7,'m2','Depleted Rounds','Minigun: +30% damage, pierces +1',S=>{S.wd[7]*=1.3;S.wp[7]++});
+WP(7,'m3','Overspin','Minigun: +25% fire rate, 30% tighter spread',S=>{S.wr[7]*=1.25;S.wsp[7]*=.7});
+PERKS.push({id:'ovk',n:'Overkill',d:'Excess damage on a kill hits the nearest zombie (35% per stack)',max:3,f:S=>S.ovk++},
+{id:'med',n:'Field Medic',d:'Medkits heal 15% max HP more per stack',max:3,f:S=>S.med++},
+{id:'tdl',n:'Time Dilation',d:'Dashing slows nearby zombies for 2s per stack',max:3,syn:'Frostbite: slowed zombies take +40% damage',a:g=>g.perks.frost,f:S=>S.tdl++},
+{id:'sen',n:'Sentry Kit',d:'Every 25 kills a sentry turret deploys',max:2,syn:'Engineer boosts all turrets',a:g=>g.perks.eng,f:S=>S.sen++},
+{id:'nv',n:'Shockwave Boots',d:'A shockwave pulses around you every 6s (90 damage)',max:3,syn:'Demolitionist widens the pulse',a:g=>g.perks.demo,f:S=>S.nv++},
+{id:'gam',n:'Gambler',d:'8% of shots deal \u00d74 damage',max:3,syn:'Marksman crits stack on top',a:g=>g.perks.crit,f:S=>S.gam++},
+{id:'arm',n:'Armor Plating',d:'Take 8% less damage',max:4,f:S=>S.arm++},
+{id:'reg',n:'Regeneration',d:'Regain 0.5% max HP per second',max:3,f:S=>S.reg++});
+const MX={dash:3,ds:3,eng:3,expl:4,demo:3,luck:2,scav:3,leech:4,spd:4,burn:3,crit:4,dmg:5,rate:5,pierce:4,mag:4,rel:3,desp:3,exec:3,bl:3,mom:3,hp:5};PERKS.forEach(k=>{if(MX[k.id])k.max=MX[k.id]});
+const PU={med:{c:'#e8493f',l:'+'},ammo:{c:'#d8c04a',l:'A'},cash:{c:'#6fd08c',l:'$'},nuke:{c:'#ff8a3d',l:'N'},rage:{c:'#c24bd6',l:'R'},freeze:{c:'#6cc7ff',l:'F'},turret:{c:'#e8e2d0',l:'T'}};
+const K={},M={x:0,y:0,down:false};let spd=1,G=null,chD=0,noWr=0,last=performance.now(),cam={x:0,y:0},diff='survivor';
+const DIFF={
+rookie:{n:'Rookie',d:'Slower, weaker zombies, 25% fewer of them, more drops, and you start with 130 HP. Points ×0.8.',hp:.75,spd:.85,dmg:.7,cnt:.75,drop:1.5,pts:.8,php:130},
+survivor:{n:'Survivor',d:'The intended experience. Balanced hordes, balanced rewards.',hp:1,spd:1,dmg:1,cnt:1,drop:1,pts:1,php:100},
+nightmare:{n:'Nightmare',d:'Tougher, faster, harder-hitting zombies and 30% bigger waves. Fewer drops. Points ×1.25.',hp:1.4,spd:1.15,dmg:1.5,cnt:1.3,drop:.8,pts:1.25,php:100},
+apocalypse:{n:'Apocalypse',d:'Double health and damage, huge hordes, scarce drops, and you start with 80 HP. Points ×1.5.',hp:2,spd:1.3,dmg:2,cnt:1.7,drop:.6,pts:1.5,php:80}};
+const TITLE=$('ov').innerHTML;
+function showTitle(){$('ov').className='show';$('ov').innerHTML=TITLE;$('spdrow').innerHTML=spdHtml();$('dc').innerHTML=Object.keys(DIFF).map(k=>`<button class="card ${k===diff?'got':''}" onclick="newGame('${k}')"><b>${DIFF[k].n}</b>${DIFF[k].d}</button>`).join('')}
+showTitle();
+const mag=i=>Math.ceil(WEAPONS[i].mag*G.S.mag*G.S.wm[i]);
+function newGame(k){diff=k||diff;G={d:DIFF[diff],bm:{xp:0,dmg:0,hp:0,rate:0,rev:0},state:'play',wave:0,pts:0,kills:0,sh:0,flash:0,
+p:{x:WW/2,y:WH/2,hp:100,r:14,a:0,dash:0,dx:0,dy:0,dcd:0,inv:0,ft:0,rl:0,cur:0,used:0,ramp:0,idle:0,bl:0,blT:0,fr:0,dh:[]},
+S:{dmg:1,rate:1,rel:1,mag:1,hp:100,spd:1,leech:0,crit:.05,pierce:0,expl:0,rev:0,mag2:0,pts:1,dash:1,adr:0,rng:0,pb:0,gs:0,hose:0,demo:0,burn:0,frost:0,exec:0,bl:0,mom:0,fr:0,ds:0,thorn:0,luck:0,desp:0,eng:0,ph:0,ovk:0,med:0,tdl:0,sen:0,nv:0,gam:0,arm:0,reg:0,wd:A(1),wr:A(1),wm:A(1),wl:A(1),wsp:A(1),wb:A(1),wx:A(0),wp:A(0),ap:A(0),wf:A(0),wc:A(0),wrr:A(0),wch:A(0)},
+perks:{},own:[1,0,0,0,0,0,0,0],wp:WEAPONS.map(w=>({lvl:0,mag:w.mag,res:Infinity})),
+Z:[],B:[],EB:[],U:[],P:[],fx:{rage:0,freeze:0,turret:0,surge:0},tur:{x:0,y:0,t:0},q:0,sp:0,boss:0};
+G.wp[0].res=Infinity;G.S.hp=G.p.hp=G.d.php;$('ov').className='';startWave()}
+function msg(t){const e=$('msg');e.textContent=t;e.animate([{opacity:1,transform:'scale(1)'},{opacity:1,transform:'scale(1)',offset:.7},{opacity:0,transform:'scale(1.08)'}],{duration:2000})}
+function startWave(){G.wave++;G.state='play';G.q=Math.round((6+G.wave*3)*G.d.cnt);G.sp=.45;G.boss=G.wave%5===0?1+Math.floor(G.wave/25):0;G.wr=G.wave>=3?Math.min(20,1+Math.floor(G.wave/5)):0;G.gates=Array.from({length:G.wave<15?2:G.wave<40?3:4},()=>R()*6.283);G.pk=0;msg(G.boss?'WAVE '+G.wave+' · '+BN[(G.wave/5-1)%4|0]:'WAVE '+G.wave)}
+function pickType(){const w=G.wave,t=[['walker',10]];if(w>=2)t.push(['runner',3+w]);if(w>=3)t.push(['brute',1+w*.6]);if(w>=4)t.push(['spitter',2+w*.5]);if(w>=5)t.push(['bloater',1+w*.3]);if(w>=6)t.push(['leaper',1+w*.35]);if(w>=7)t.push(['riot',1+w*.3]);if(w>=8)t.push(['hive',1+w*.25]);if(w>=10)t.push(['necro',.5+w*.15]);
+let s=t.reduce((a,b)=>a+b[1],0)*R();for(const[x,v]of t){if((s-=v)<=0)return x}return'walker'}
+function gAng(){if(!G.gates||!G.gates.length)return R()*6.283;G.pk=(G.pk||0)-1;if(G.pk<=0){G.pk=3+(R()*3|0);G.gc=R()*G.gates.length|0;if(R()<.12)G.gates[R()*G.gates.length|0]=R()*6.283}return G.gates[G.gc%G.gates.length]+(R()-.5)*.7}
+function spawn(type,sx,sy){const NM={wraith:'WRAITH · BLINKS TO YOU, IGNORES DASH I-FRAMES, DASH STRIKE & FREEZE',bloater:'BLOATER · BURSTS WHEN KILLED',leaper:'LEAPER · LUNGES AT YOU',riot:'RIOT · ARMORED VS BULLETS',hive:'HIVE · SPLITS WHEN KILLED',necro:'NECROMANCER · SUMMONS ZOMBIES'};G.seen=G.seen||{};if(NM[type]&&!G.seen[type]){G.seen[type]=1;msg(NM[type])}const b=ZT[type],a=gAng(),d=620+R()*200,sc=(1+G.wave*.09)*Math.pow(1.04,G.wave);
+const hp=b.hp*(type==='boss'?(1+G.wave*.12)*Math.pow(1.045,G.wave):sc)*Math.pow(1.12,Math.max(0,G.wave-40))*Math.pow(1.05,Math.max(0,G.wave-70))*G.d.hp;
+G.Z.push({t:type,x:sx??Math.max(30,Math.min(WW-30,G.p.x+Math.cos(a)*d)),y:sy??Math.max(30,Math.min(WH-30,G.p.y+Math.sin(a)*d)),hp,max:hp,r:b.r,spd:b.spd*(.9+R()*.2)*G.d.spd*(1+Math.min(.6,G.wave*.006)),dmg:b.dmg*G.d.dmg*(1+G.wave*.05)*(type==='wraith'?1+G.wave*.03:1),c:b.c,cd:0,fl:0,sh:2,ms:5,slow:0,burn:0,arm:b.arm||0,lt:2+R()*2,lv:0,ns:4});const nz=G.Z[G.Z.length-1];if(G.wave>=20&&type!=='boss'&&type!=='crawler'&&R()<Math.min(.7,(G.wave-15)*.012)){nz.af=R()*3|0;if(nz.af===0)nz.shd=nz.max*.8;if(nz.af===1)nz.spd*=1.35}
+if(type==='boss'){const k=(G.wave/5-1)%4|0;nz.bk=k;nz.c=['#7a4560','#8a5a2a','#3a5aa0','#a04a6a'][k];if(k===1){nz.arm=.4;nz.r=44;nz.hp=nz.max=nz.max*1.2}if(k===2){nz.r=34;nz.hp=nz.max=nz.max*.8;nz.ms=1.5}if(k===3)nz.r=46}}
+function bdmg(b,z){const S=G.S;let d=b.d*(1-(b.ap?0:(z.arm||0)));const dist=b.ox==null?0:Math.hypot(b.x-b.ox,b.y-b.oy);
+d*=1+((b.rng||0)+S.rng*(b.rk?2.5:1))*Math.min(dist,900)/100;
+if(dist<170&&S.pb)d*=1+.5*S.pb*(b.sg?1.8:1);
+if(z.hp<z.max*.3&&S.exec)d*=1+.8*S.exec;
+if((z.slow>0||G.fx.freeze>0)&&S.frost)d*=1+.4*S.frost;return d}
+function hurt(z,d,crit){if(z.shd>0){const a=Math.min(z.shd,d);z.shd-=a;d-=a;z.fl=.07;if(d<=0)return}z.hp-=d;z.fl=.07;if(G.S.burn)z.burn=3;if(G.S.frost)z.slow=2;for(let i=0;i<3;i++)part(z.x,z.y,'#a32a24',120);if(z.hp<=0&&!z.dead){z.over=-z.hp;kill(z)}}
+function part(x,y,c,v){const a=R()*6.283,s=R()*v;G.P.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:.4+R()*.3,c})}
+function explode(x,y,r,d){r*=1+.35*G.S.demo;G.sh=Math.max(G.sh,8);for(let i=0;i<24;i++)part(x,y,i%2?'#ffa13d':'#ffd27a',320);G.P.push({x,y,vx:0,vy:0,l:.25,c:'ring',r});
+for(const z of G.Z.slice())if(!z.dead&&!(noWr&&z.t==='wraith')&&Math.hypot(z.x-x,z.y-y)<r+z.r)hurt(z,d)}
+function kill(z){z.dead=1;G.Z.splice(G.Z.indexOf(z),1);const S=G.S;G.pts+=Math.round(ZT[z.t].pts*S.pts*G.d.pts*(5/3)*(1+G.wave*.03));G.kills++;
+{const h=Math.min(S.leech*.4,G.lb||0);G.lb=(G.lb||0)-h;G.p.hp=Math.min(S.hp,G.p.hp+h)};for(let i=0;i<10;i++)part(z.x,z.y,'#7a1f1b',220);
+if(z.t==='bloater'){for(let i=0;i<20;i++)part(z.x,z.y,'#c9d94a',260);if(Math.hypot(z.x-G.p.x,z.y-G.p.y)<100)damage(18*G.d.dmg)}
+if(z.t==='hive'){for(let i=0;i<3;i++)spawn('crawler',z.x+R()*30-15,z.y+R()*30-15)}
+if(z.t==='boss'&&z.bk===3){for(let i=0;i<8;i++)spawn('crawler',z.x+R()*60-30,z.y+R()*60-30)}
+if(S.ovk&&chD<2){let t=null,td=140;for(const q of G.Z){const dd2=Math.hypot(q.x-z.x,q.y-z.y);if(dd2<td){td=dd2;t=q}}if(t){chD++;hurt(t,(z.over||0)*.35*S.ovk);chD--}}
+if(S.sen&&G.kills%25===0){G.fx.turret=Math.max(G.fx.turret,5+3*S.sen);G.tur.x=G.p.x;G.tur.y=G.p.y;G.tur.t=0}
+if(S.bl){G.p.bl=Math.min(8,G.p.bl+1);G.p.blT=4}if(S.expl&&chD<2){chD++;explode(z.x,z.y,55+S.expl*18,25*S.dmg*S.expl*(z.burn>0?1.6:1));chD--}
+const ch=z.t==='boss'?1:(z.t==='brute'?.4:.07)*(1+S.luck)*G.d.drop;if(R()<ch)drop(z.x,z.y,z.t==='boss')}
+function drop(x,y,all){const w=[['cash',5],['med',3],['ammo',4],['nuke',1],['rage',1.5],['freeze',1.5],['turret',1.5]];
+const n=all?3:1;for(let k=0;k<n;k++){let s=w.reduce((a,b)=>a+b[1],0)*R(),t='cash';for(const[x2,v]of w){if((s-=v)<=0){t=x2;break}}G.U.push({x:x+(k?R()*50-25:0),y:y+(k?R()*50-25:0),t,l:16,b:R()*6})}}
+function grab(u){const S=G.S,p=G.p;switch(u.t){
+case'med':p.hp=Math.min(S.hp,p.hp+40+S.hp*.15*S.med);msg('MEDKIT');break;
+case'ammo':G.fx.surge=7;G.wp[G.p.cur].mag=mag(G.p.cur);G.p.rl=0;msg('AMMO SURGE · NO RELOAD');break;
+case'cash':G.pts+=Math.round(60*S.pts);break;
+case'nuke':msg('NUKE');G.sh=20;for(const z of G.Z.slice())hurt(z,z.t==='boss'?z.max*.25:z.max*.6);break;
+case'rage':G.fx.rage=10;msg('RAGE · DOUBLE DAMAGE');break;
+case'freeze':G.fx.freeze=7;msg('FREEZE');break;
+case'turret':G.fx.turret=14+4*S.eng;G.tur.x=p.x;G.tur.y=p.y;G.tur.t=0;msg('TURRET DEPLOYED');break}}
+function damage(d,ig){const p=G.p;if(p.inv>0&&!ig)return;p.hp-=d*Math.pow(.92,G.S.arm);p.inv=.3;G.sh=Math.max(G.sh,5);G.flash=.5;
+if(p.hp<=0){if(G.S.rev&&!p.used){p.used=1;p.hp=G.S.hp*.5;p.inv=2;explode(p.x,p.y,260,300);msg('SECOND WIND')}else over()}}
+function over(){G.state='over';let pk=Object.keys(G.perks).map(k=>PERKS.find(x=>x.id===k).n+(G.perks[k]>1?' ×'+G.perks[k]:'')).join(', ')||'none';
+$('ov').className='show';$('ov').innerHTML=`<div class="wrap"><h1 style="color:var(--blood)">YOU FELL</h1><p>You reached <b>wave ${G.wave}</b> with <b>${G.kills}</b> kills on <b>${G.d.n}</b>.</p><p>Build: ${pk}</p><div class="row"><button onclick="newGame()">Try again</button><button onclick="showTitle()">Change difficulty</button></div></div>`}
+function startReload(){const p=G.p,ws=G.wp[p.cur];if(p.rl>0||ws.res<=0||ws.mag>=mag(p.cur))return;p.rl=p.rt=WEAPONS[p.cur].rl*G.S.rel*G.S.wl[p.cur]/1000}
+function fire(){const p=G.p,S=G.S,w=WEAPONS[p.cur],ws=G.wp[p.cur];
+const mv=(K.w||K.a||K.s||K.d)?1:0,pm=(p.cur===0?1+.6*S.gs:1)*(1+.06*S.bl*p.bl)*(1+.2*S.mom*mv)*(1+.6*S.desp*(1-p.hp/S.hp));
+p.ft=Math.max(p.ft,-.034)+Math.max(.05,w.rate/1000/(S.rate*S.wr[p.cur]*(S.adr&&p.hp<S.hp*.4?1.35:1)*(p.cur===0?1+.4*S.gs:1)*(p.fr>0?1+.4*S.fr:1)*(1+Math.min(p.ramp,.5*S.hose+(w.ramp||0)))));p.ramp+=w.rg||(p.cur===1?.05:.025);p.idle=0;p.fl=.07;if(G.fx.surge<=0)ws.mag--;
+for(let i=0;i<w.pel+S.wx[p.cur];i++){const a=p.a+(R()-.5)*2*w.sp*S.wsp[p.cur],cr=R()<S.crit+S.wc[p.cur],d=w.dmg*(1+.25*Math.min(ws.lvl,5)+.15*Math.max(0,ws.lvl-5))*S.dmg*S.wd[p.cur]*(i>=w.pel?(w.ef||1):1)*(G.fx.rage>0?2:1)*(cr?2.5:1)*pm*(R()<.08*S.gam?4:1);
+G.B.push({x:p.x+Math.cos(p.a)*22,y:p.y+Math.sin(p.a)*22,vx:Math.cos(a)*w.spd,vy:Math.sin(a)*w.spd,d,l:w.life,pr:w.pierce+S.pierce+S.wp[p.cur],hit:[],ex:w.expl?w.expl*S.wb[p.cur]:0,cr,ap:S.ap[p.cur],fire:S.wf[p.cur]||w.fire,ch:(w.chain||0)+S.wch[p.cur],fl:w.fire?1:0,rr:S.wrr[p.cur],rk:p.cur===3,ox:p.x,oy:p.y,rng:w.rng,sg:p.cur===2})}
+G.sh=Math.max(G.sh,p.cur===2?4:p.cur===4?6:1.5)}
+function update(dt){const p=G.p,S=G.S;
+for(const k in G.fx)G.fx[k]=Math.max(0,G.fx[k]-dt);G.sh*=.88;G.flash=Math.max(0,G.flash-dt);
+p.ft-=dt;p.dcd-=dt;p.inv-=dt;G.wg=(G.wg||0)-dt;G.lb=Math.min(S.hp*.1,(G.lb??S.hp*.1)+S.hp*.015*dt);p.idle+=dt;if(p.idle>.5)p.ramp=0;G.t=(G.t||0)+dt;p.fl=Math.max(0,(p.fl||0)-dt);p.nv=(p.nv||0)-dt;if(S.nv&&p.nv<=0){p.nv=6;explode(p.x,p.y,140,90*S.nv*S.dmg)}if(S.reg)p.hp=Math.min(S.hp,p.hp+S.hp*.005*S.reg*dt);p.blT-=dt;if(p.blT<=0)p.bl=0;p.fr-=dt;
+cam.x=Math.max(0,Math.min(WW-W,p.x-W/2));cam.y=Math.max(0,Math.min(WH-H,p.y-H/2));
+p.a=Math.atan2(M.y+cam.y-p.y,M.x+cam.x-p.x);
+let mx=(K.d?1:0)-(K.a?1:0),my=(K.s?1:0)-(K.w?1:0);const l=Math.hypot(mx,my)||1;mx/=l;my/=l;
+if(p.dash>0){p.dash-=dt;const dv=820*(1+.25*S.ph);p.x+=p.dx*dv*dt;p.y+=p.dy*dv*dt;if(p.dash<=0&&S.ds){noWr=1;explode(p.x,p.y,80,60*S.ds*S.dmg*(1+.4*S.ph)*(1+.15*Math.min(G.wave,40)));noWr=0}part(p.x,p.y,'#e8e2d055',60);if(S.ds)for(const z of G.Z.slice())if(z.t!=='wraith'&&!p.dh.includes(z)&&Math.hypot(z.x-p.x,z.y-p.y)<z.r+p.r+10){p.dh.push(z);hurt(z,70*S.ds*S.dmg*(1+.4*S.ph)*(1+.15*Math.min(G.wave,40)))}}else{p.x+=mx*195*S.spd*dt;p.y+=my*195*S.spd*dt}
+p.x=Math.max(p.r,Math.min(WW-p.r,p.x));p.y=Math.max(p.r,Math.min(WH-p.r,p.y));
+if((K.shift||K[' '])&&(p.dcd<=0||p.xc>0)&&p.dash<=0){if(p.dcd>0)p.xc--;else{p.dcd=3*S.dash;p.xc=S.ph}p.dash=.18;p.dh=[];if(S.tdl)for(const z of G.Z)if(Math.hypot(z.x-p.x,z.y-p.y)<320)z.slow=2*S.tdl;p.dx=mx||Math.cos(p.a);p.dy=my||(mx?0:Math.sin(p.a));p.inv=.4}
+const ws=G.wp[p.cur];
+if(p.rl>0){p.rl-=dt;if(p.rl<=0){const t=Math.min(mag(p.cur)-ws.mag,ws.res);ws.mag+=t;ws.res-=t;if(S.fr)p.fr=4}}
+else if(M.down&&p.ft<=0){if(ws.mag>0)fire();else startReload()}
+if(K.r||ws.mag<=0)startReload();
+// spawning
+if(G.q>0||G.boss){G.sp-=dt;if(G.sp<=0){G.sp=Math.max(.032,(.375-G.wave*.0125)/Math.sqrt(G.d.cnt));if(G.boss){G.boss--;spawn('boss')}else{G.q--;spawn(G.wr>0&&(G.q<=G.wr||R()<.15)?(G.wr--,'wraith'):pickType())}}}
+// bullets
+for(let i=G.B.length-1;i>=0;i--){const b=G.B[i];b.l-=dt;const n=Math.ceil(Math.hypot(b.vx,b.vy)*dt/10);let dead=b.l<=0;
+for(let s=0;s<n&&!dead;s++){b.x+=b.vx*dt/n;b.y+=b.vy*dt/n;
+for(const z of G.Z){if(b.hit.includes(z)||Math.hypot(z.x-b.x,z.y-b.y)>z.r+4)continue;b.hit.push(z);const dd=bdmg(b,z);hurt(z,dd,b.cr);if(b.fire){z.burn=3;z.fb=1}
+if(b.ch>0){let n=b.ch;for(const q of G.Z.slice()){if(n<=0)break;if(q!==z&&!q.dead&&Math.hypot(q.x-z.x,q.y-z.y)<170){n--;G.P.push({x:z.x,y:z.y,vx:0,vy:0,l:.12,c:'arc',x2:q.x,y2:q.y});hurt(q,dd*.6)}}}
+if(b.ex){explode(b.x,b.y,b.ex,dd);if(b.fire)for(const q of G.Z)if(Math.hypot(q.x-b.x,q.y-b.y)<b.ex*(1+.35*S.demo)+q.r){q.burn=3;q.fb=1}dead=true}else{if(b.rr)b.d*=1+b.rr;if(b.pr--<=0)dead=true}break}}
+if(b.l<=0&&b.ex)explode(b.x,b.y,b.ex,b.d);if(dead||b.x<0||b.y<0||b.x>WW||b.y>WH)G.B.splice(i,1)}
+for(let i=G.EB.length-1;i>=0;i--){const b=G.EB[i];b.x+=b.vx*dt;b.y+=b.vy*dt;b.l-=dt;
+if(Math.hypot(b.x-p.x,b.y-p.y)<p.r+6){damage(b.d);b.l=0}if(b.l<=0)G.EB.splice(i,1)}
+// zombies
+const slow=G.fx.freeze>0?.2:1;
+for(const z of G.Z){const dx=p.x-z.x,dy=p.y-z.y,d=Math.hypot(dx,dy)||1;z.fl-=dt;z.cd-=dt;z.slow-=dt;if(z.burn>0){z.burn-=dt;z.hp-=10*Math.max(S.burn,z.fb||0)*S.dmg*dt;if(z.hp<=0&&!z.dead){kill(z);continue}}
+if(z.af===2&&z.hp<z.max)z.hp=Math.min(z.max,z.hp+z.max*.03*dt);
+const rng=ZT[z.t].rng,ZQ=ZT[z.t],keep=rng||ZQ.keep||(z.bk===2);
+if(z.t==='wraith'){z.bt=(z.bt??2.5)-dt;if(z.bt<=0&&d>140){z.bt=4+R()*2;z.cd=.8;const a=R()*6.283;z.x=Math.max(20,Math.min(WW-20,p.x+Math.cos(a)*70));z.y=Math.max(20,Math.min(WH-20,p.y+Math.sin(a)*70));for(let k=0;k<10;k++)part(z.x,z.y,'#b48cff',220)}}
+if(ZQ.lp){z.lt-=dt*slow;if(z.lv>0)z.lv-=dt;else if(z.lt<=0&&d<380){z.lv=.4;z.lt=3+R()*1.5}}
+if(z.t==='necro'){z.ns-=dt*slow;if(z.ns<=0&&G.Z.length<150){z.ns=6;for(let k=0;k<2;k++)spawn('walker',z.x+R()*40-20,z.y+R()*40-20)}}
+if(!(keep&&d<250)){const sl=(z.t==='wraith'?1:slow*(z.slow>0?.6:1))*(z.lv>0?4.5:1);z.x+=dx/d*z.spd*sl*dt;z.y+=dy/d*z.spd*sl*dt}
+if(rng&&z.cd<=0&&d<520&&G.fx.freeze<=0){z.cd=2.2;G.EB.push({x:z.x,y:z.y,vx:dx/d*260,vy:dy/d*260,d:z.dmg,l:3})}
+if(z.t==='boss'){z.ms-=dt*slow;const bk=z.bk|0;
+if(bk===0&&z.ms<=0){z.ms=5;for(let k=0;k<3;k++)spawn(k?'walker':'runner',z.x+R()*60-30,z.y+R()*60-30)}
+if(bk===1){z.lt-=dt*slow;if(z.lv>0)z.lv-=dt;else if(z.lt<=0&&d<750){z.lv=.8;z.lt=4+R()*1.5;G.sh=Math.max(G.sh,6)}}
+if(bk===2&&z.ms<=0&&G.fx.freeze<=0){z.ms=2.6;for(let k=-2;k<=2;k++){const aa=Math.atan2(dy,dx)+k*.22;G.EB.push({x:z.x,y:z.y,vx:Math.cos(aa)*260,vy:Math.sin(aa)*260,d:z.dmg*.6,l:3.5})}}
+if(bk===3&&z.ms<=0){z.ms=4;for(let k=0;k<4;k++)spawn('crawler',z.x+R()*50-25,z.y+R()*50-25)}}
+if(!rng&&d<z.r+p.r&&z.cd<=0&&(G.fx.freeze<=0||z.t==='wraith')&&(z.t!=='wraith'||(G.wg||0)<=0)){z.cd=.8;if(z.t==='wraith')G.wg=1.2;damage(z.dmg+G.S.hp*(z.t==='wraith'?.02:Math.min(.03,Math.max(0,G.wave-30)*.0004)),z.t==='wraith');if(S.thorn){hurt(z,35*S.thorn*S.dmg);z.x-=dx/d*30;z.y-=dy/d*30}}}
+for(let i=0;i<G.Z.length;i++)for(let j=i+1;j<G.Z.length;j++){const a=G.Z[i],b=G.Z[j],dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy),m=(a.r+b.r)*.85;
+if(d<m&&d>0){const f=(m-d)/2/d;a.x-=dx*f;a.y-=dy*f;b.x+=dx*f;b.y+=dy*f}}
+// turret
+if(G.fx.turret>0){G.tur.t-=dt;if(G.tur.t<=0){let best=null,bd=480;for(const z of G.Z){const d=Math.hypot(z.x-G.tur.x,z.y-G.tur.y);if(d<bd){bd=d;best=z}}
+if(best){G.tur.t=.22/(1+.3*S.eng);const a=Math.atan2(best.y-G.tur.y,best.x-G.tur.x);G.tur.a=a;G.B.push({x:G.tur.x,y:G.tur.y,vx:Math.cos(a)*1000,vy:Math.sin(a)*1000,d:18*S.dmg*(1+.5*S.eng),l:.6,pr:0,hit:[]})}}}
+// pickups
+for(let i=G.U.length-1;i>=0;i--){const u=G.U[i];u.l-=dt;u.b+=dt*4;if(Math.hypot(u.x-p.x,u.y-p.y)<p.r+18+S.mag2){grab(u);G.U.splice(i,1)}else if(u.l<=0)G.U.splice(i,1)}
+for(let i=G.P.length-1;i>=0;i--){const q=G.P[i];q.x+=q.vx*dt;q.y+=q.vy*dt;q.vx*=.93;q.vy*=.93;q.l-=dt;if(q.l<=0)G.P.splice(i,1)}
+if(G.q<=0&&!G.boss&&!G.Z.length)openShop()}
+// shop
+let choices=[],picked=false,rerolled=false,xpS=0,healed=false;
+function openShop(){G.state='shop';picked=false;rerolled=false;xpS=0;healed=false;G.B=[];G.EB=[];G.own.forEach((o,i)=>{if(o)G.wp[i].res+=mag(i)});G.wp[0].res=Infinity;
+genChoices();renderShop()}
+const PC={hp:'def',leech:'def',arm:'def',reg:'def',med:'def',thorn:'def',rev:'def',desp:'def',adr:'def',spd:'mob',dash:'mob',ds:'mob',tdl:'mob',mom:'mob',expl:'boom',demo:'boom',nv:'boom',ovk:'boom',burn:'elem',frost:'elem',crit:'prec',gam:'prec',snip:'prec',pb:'prec',exec:'prec',pierce:'prec',mag:'gun',rel:'gun',rate:'gun',fr:'gun',hose:'gun',bl:'gun',scav:'eco',luck:'eco',eng:'tur',sen:'tur',dmg:'dmg'};
+const pcat=k=>k.w!=null?'w'+k.w:(PC[k.id]||'misc');
+function genChoices(){G.ig=G.ig||{};const pool=PERKS.filter(k=>!(k.one&&G.perks[k.id])&&(G.perks[k.id]||0)<(k.max||6)&&(k.w==null||G.own[k.w]));choices=[];
+while(choices.length<4&&pool.length){const ws=pool.map(k=>Math.max(.2,1-.16*(G.ig[pcat(k)]||0)));let t=ws.reduce((a,b)=>a+b,0)*R(),i=0;for(;i<pool.length-1;i++){t-=ws[i];if(t<=0)break}choices.push(pool.splice(i,1)[0])}}
+function renderShop(){const S=G.S;if(!choices.length)picked=true;let h=`<div class="wrap"><h2 style="font-size:60px;margin-top:2vh">Wave ${G.wave} cleared</h2><div class="row"><span class="big">${G.pts} pts</span><span class="sm">HP ${Math.ceil(G.p.hp)}/${S.hp}</span></div><div class="row" style="margin-top:8px"><span class="sm">Speed:</span>${spdHtml()}<button class="sb" onclick="showTut(0)">How to play</button></div>
+<p class="sm">Build: ${Object.keys(G.perks).map(id=>{const k=PERKS.find(x=>x.id===id);return k.n+(G.perks[id]>1?' ×'+G.perks[id]:'')}).join(', ')||'none yet'}</p><h2>Pick a perk</h2><div class="cards">`;
+choices.forEach((k,i)=>h+=`<button class="card ${k.a&&k.a(G)?'got':''}" ${picked?'disabled':''} onclick="pickPerk(${i})"><b>${k.n}</b>${k.d}${k.w!=null?'<br><span class="k">'+WEAPONS[k.w].n+' upgrade'+(G.own[k.w]?'':' (gun not owned)')+'</span>':k.syn?'<br><span class="'+(k.a(G)?'k':'sm')+'">'+(k.a(G)?'Bonus active: ':'Bonus: ')+k.syn+'</span>':''}${G.perks[k.id]?'<br><span class="sm">owned ×'+G.perks[k.id]+'</span>':''}</button>`);
+h+=`</div><h2>Armory</h2><div class="cards">`;
+WEAPONS.forEach((w,i)=>{const o=G.own[i],lv=G.wp[i].lvl,c=o?upC(lv):w.cost;
+h+=`<button class="card ${o?'got':''}" ${c>G.pts||(o&&lv>=12)?'disabled':''} onclick="buy(${i})"><b>${w.n}</b>${o?(lv>=12?'Max level':'Upgrade to Lv '+(lv+1)+' (+'+(lv<5?25:15)+'% damage)'):'Buy weapon'}<br><span class="k">${o&&lv>=12?'':c+' pts'}</span> ${o?'<span class="sm">Lv '+lv+'</span>':''}<br><span class="sm">${wst(i)}</span><br><span class="sm">${WI[w.n][0]} Weak: ${WI[w.n][1]}</span></button>`});
+h+=`<button class="card" ${G.pts<rrC()||picked||rerolled?'disabled':''} onclick="reroll()"><b>Reroll perks</b>${rerolled?'Already used this shop':'One reroll per shop, before you pick'}<br><span class="k">${rrC()} pts</span></button>
+<button class="card" ${G.pts<healC()||healed||G.p.hp>=S.hp?'disabled':''} onclick="heal()"><b>Patch up</b>${healed?'Already used this shop':'+25% max HP, once per shop. Price rises every time you buy it'}<br><span class="k">${healC()} pts</span></button></div><h2>Black Market</h2><div class="cards">${BMI.map((b,i)=>{const c=bmC[i](),off=G.pts<c||G.bm[BMI[i].k]>=BMX[i]||(i===0&&(!picked||xpS>=2))||(i===4&&G.S.rev&&!G.p.used);return `<button class="card" ${off?'disabled':''} onclick="buyBM(${i})"><b>${b.n}</b>${b.d}<br><span class="k">${c} pts</span> <span class="sm">bought ${G.bm[b.k]}${BMX[i]<99?'/'+BMX[i]:''}</span></button>`}).join('')}</div>
+<p style="margin-top:22px"><button ${picked?'':'disabled'} onclick="nextWave()">Start wave ${G.wave+1}</button> ${picked?'':'<span class="sm">&nbsp;Choose a perk first.</span>'}</p></div>`;
+$('ov').className='show';$('ov').innerHTML=h}
+function pickPerk(i){const k=choices[i];G.ig=G.ig||{};new Set(choices.map(pcat)).forEach(c=>{G.ig[c]=c===pcat(k)?0:(G.ig[c]||0)+1});G.perks[k.id]=(G.perks[k.id]||0)+1;k.f(G.S,G);picked=true;renderShop()}
+function buy(i){const w=G.wp[i];if(G.own[i]){const c=upC(w.lvl);if(w.lvl>=12||G.pts<c)return;G.pts-=c;w.lvl++}else{if(G.pts<WEAPONS[i].cost)return;G.pts-=WEAPONS[i].cost;G.own[i]=1;G.p.cur=i;G.p.rl=0}renderShop()}
+const upC=lv=>lv<5?150*(lv+1):Math.round(1500*1.4**(lv-5)),rrC=()=>400+40*G.wave;
+function reroll(){if(G.pts<rrC()||picked||rerolled)return;G.pts-=rrC();rerolled=true;genChoices();renderShop()}
+const bmC=[()=>Math.round(600*1.6**G.bm.xp),()=>Math.round(700*1.5**G.bm.dmg),()=>Math.round(450*1.45**G.bm.hp),()=>Math.round(700*1.5**G.bm.rate),()=>Math.round(3000*2.5**G.bm.rev)];
+const BMX=[99,8,6,6,2];const BMI=[{n:'Extra perk pick',d:'Another set of 4 perks (max 2 per shop)',k:'xp'},{n:'Serum injection',d:'+12% damage, permanently',k:'dmg'},{n:'Reinforced vest',d:'+35 max HP and heal that much',k:'hp'},{n:'Overdrive cells',d:'+10% fire rate, permanently',k:'rate'},{n:'Emergency revive',d:'Re-arms a revive: come back at half HP with a shockwave',k:'rev'}];
+function buyBM(i){const b=BMI[i],c=bmC[i](),S=G.S;if(G.pts<c||G.bm[b.k]>=BMX[i]||(i===0&&(!picked||xpS>=2))||(i===4&&S.rev&&!G.p.used))return;G.pts-=c;G.bm[b.k]++;
+if(i===0){xpS++;genChoices();picked=false}if(i===1)S.dmg*=1.12;if(i===2){S.hp+=35;G.p.hp=Math.min(S.hp,G.p.hp+35)}if(i===3)S.rate*=1.1;if(i===4){S.rev=1;G.p.used=0}renderShop()}
+const healC=()=>Math.round((150+30*G.wave)*1.35**(G.hc||0));
+function heal(){const c=healC();if(G.pts<c||healed||G.p.hp>=G.S.hp)return;G.pts-=c;G.hc=(G.hc||0)+1;healed=true;G.p.hp=Math.min(G.S.hp,G.p.hp+Math.max(50,G.S.hp*.25));renderShop()}
+function nextWave(){$('ov').className='';startWave()}
+// input
+addEventListener('keydown',e=>{const k=e.key.toLowerCase();K[k]=1;if(G&&G.state==='play'&&k>='1'&&k<='8'){const i=+k-1;if(G.own[i]){G.p.cur=i;G.p.rl=0}}if([' ','shift'].includes(k))e.preventDefault()});
+addEventListener('keyup',e=>K[e.key.toLowerCase()]=0);
+cv.addEventListener('mousemove',e=>{M.x=e.clientX;M.y=e.clientY});
+cv.addEventListener('mousedown',e=>{M.x=e.clientX;M.y=e.clientY;M.down=true});addEventListener('mouseup',()=>M.down=false);
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+// draw
+
+function drawZ(z,p){
+const a=Math.atan2(p.y-z.y,p.x-z.x),r=z.r,sw=Math.sin((G.t||0)*(z.spd/16)+z.x*.07),hit=z.fl>0,fz=G.fx.freeze>0||z.slow>0,bn=z.burn>0,T=z.t,bk=z.bk|0;
+const tn=c=>hit?'#ffffff':bn?'#e8742a':fz?'#9fd6ee':c,skin=hit?'#ffffff':bn?'#ffb070':fz?'#cfeaf7':'#b9c9a0',bc=['#e8c86a','#c96a3a','#8fb0ff','#ff9ac8'][bk];
+const E=(x,y,rx,ry,c)=>{ctx.fillStyle=c;ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,6.283);ctx.fill()},C=(x,y,rr,c)=>E(x,y,rr,rr,c);
+const hb=()=>{if(z.hp<z.max||T==='boss'){const w=r*2,y=z.y-r*1.3-(T==='boss'?10:6),h=T==='boss'?7:4;ctx.fillStyle='rgba(0,0,0,.7)';ctx.fillRect(z.x-w/2,y,w,h);ctx.fillStyle=T==='boss'?'#e8c86a':'#d8382c';ctx.fillRect(z.x-w/2,y,w*Math.max(0,z.hp)/z.max,h)}};
+ctx.save();ctx.translate(z.x,z.y);
+ctx.fillStyle='rgba(0,0,0,.3)';ctx.beginPath();ctx.ellipse(0,r*.3,r*1.1,r*.75,0,0,6.283);ctx.fill();
+if(z.af===2){ctx.fillStyle='rgba(93,255,122,'+(.15+.1*Math.sin((G.t||0)*6))+')';ctx.beginPath();ctx.arc(0,0,r*1.6,0,6.283);ctx.fill()}
+if(z.af===1){ctx.strokeStyle='rgba(255,210,58,.75)';ctx.lineWidth=2;for(let i=1;i<4;i++){const ox=-Math.cos(a)*r*(1.2+i*.6),oy=-Math.sin(a)*r*(1.2+i*.6);ctx.beginPath();ctx.moveTo(ox,oy-r*.4);ctx.lineTo(ox-Math.cos(a)*r*.6,oy-Math.sin(a)*r*.6-r*.4);ctx.stroke()}}
+if(T==='wraith'){ctx.globalAlpha=.85;C(0,0,r*2,'rgba(180,140,255,.22)');ctx.fillStyle=tn('#b48cff');ctx.beginPath();ctx.moveTo(-r,r*.2);ctx.arc(0,-r*.1,r,Math.PI,0);ctx.lineTo(r,r*1.5);for(let i=0;i<4;i++)ctx.lineTo(r-(i+.5)*r*.5,r*(1.05+(i%2?.5:0)+sw*.15));ctx.lineTo(-r,r*1.5);ctx.closePath();ctx.fill();C(-r*.35,-r*.15,r*.2,'#fff');C(r*.35,-r*.15,r*.2,'#fff');E(0,r*.4,r*.2,r*.28,'#2a1a4a');ctx.globalAlpha=1;
+if(z.shd>0){ctx.strokeStyle='rgba(79,216,255,.85)';ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,0,r*1.5,0,6.283);ctx.stroke()}ctx.restore();hb();return}
+ctx.rotate(a);
+const dk=hit?'#fff':'#252a2e';
+if(T!=='crawler'){E(-r*.3+sw*r*.35,-r*.45,r*.38,r*.2,dk);E(-r*.3-sw*r*.35,r*.45,r*.38,r*.2,dk)}
+const armL=T==='leaper'?1.5:T==='bloater'?.75:1.15;
+ctx.lineCap='round';ctx.strokeStyle=tn(z.c);ctx.lineWidth=r*(T==='brute'||T==='boss'?.5:.3);
+for(const s2 of[-1,1]){const w=sw*s2*r*.2;ctx.beginPath();ctx.moveTo(r*.05,s2*r*.75);ctx.lineTo(r*armL+w,s2*r*.5);ctx.stroke();C(r*armL+w+r*.08,s2*r*.5,r*.2,skin);
+if(T==='leaper'||T==='boss'&&bk===1){ctx.fillStyle='#f4efd8';ctx.beginPath();ctx.moveTo(r*armL+w+r*.15,s2*r*.5-r*.13);ctx.lineTo(r*armL+w+r*.65,s2*r*.5);ctx.lineTo(r*armL+w+r*.15,s2*r*.5+r*.13);ctx.fill()}}
+const bw=T==='runner'?.68:T==='bloater'?1.25:T==='brute'?1.05:.88;
+E(0,0,r*.8,r*bw,tn(z.c));ctx.strokeStyle='rgba(0,0,0,.45)';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(0,0,r*.8,r*bw,0,0,6.283);ctx.stroke();
+if(T==='walker'||T==='runner')E(-r*.1,0,r*.35,r*.55,hit?'#fff':'rgba(40,70,120,.8)');
+if(T==='brute')for(const s2 of[-1,1]){C(0,s2*r*.95,r*.4,hit?'#fff':'#3a3f3a');ctx.fillStyle='#c4c9bc';for(let k=-1;k<=1;k++){ctx.beginPath();ctx.moveTo(k*r*.22-r*.1,s2*r*1.2);ctx.lineTo(k*r*.22,s2*r*1.6);ctx.lineTo(k*r*.22+r*.1,s2*r*1.2);ctx.fill()}}
+if(T==='spitter')for(const s2 of[-1,1])C(-r*.3,s2*r*.55,r*.3,hit?'#fff':'#b6ffd8');
+if(T==='bloater')for(let i=0;i<5;i++){const aa=i*1.3;C(Math.cos(aa)*r*.45,Math.sin(aa)*r*.6,r*.16,hit?'#fff':'#ece37c')}
+if(T==='hive')for(let i=0;i<3;i++)C(-r*.5-i*r*.08,(i-1)*r*.55,r*.3,hit?'#fff':'#e58ac8');
+if(T==='riot'){ctx.fillStyle=hit?'#fff':'#a9b8c6';ctx.fillRect(r*.75,-r*.9,r*.35,r*1.8);ctx.strokeStyle='#33424f';ctx.lineWidth=2;ctx.strokeRect(r*.75,-r*.9,r*.35,r*1.8)}
+if(T==='necro'){ctx.strokeStyle='#8a6a3a';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(r*.4,r*.9);ctx.lineTo(r*1.9,r*.9);ctx.stroke();C(r*1.95,r*.9,r*.28,'#c9a0ff')}
+if(T==='boss'){
+if(bk===0)for(let k=-2;k<=2;k++){ctx.fillStyle='#e8e2d0';ctx.beginPath();ctx.moveTo(-r*.7,k*r*.35-r*.1);ctx.lineTo(-r*1.25,k*r*.4);ctx.lineTo(-r*.7,k*r*.35+r*.1);ctx.fill()}
+if(bk===1){E(r*.1,0,r*.55,r*1.0,hit?'#fff':'#5a5f66');for(const s2 of[-1,1])C(0,s2*r*1.0,r*.45,hit?'#fff':'#46494f')}
+if(bk===2){E(-r*.2,0,r*.9,r*.95,hit?'#fff':'#2a3d78');for(let i=0;i<3;i++){const ao=(G.t||0)*2+i*2.09;C(Math.cos(ao)*r*1.5,Math.sin(ao)*r*1.5,r*.2,bc)}}
+if(bk===3)for(let i=0;i<5;i++){const ao=i*1.26;C(-r*.4+Math.cos(ao)*r*.5,Math.sin(ao)*r*.7,r*.28,hit?'#fff':'#f5c0d8')}}
+const hs=T==='brute'?.32:T==='boss'?.42:T==='bloater'?.38:.46,hx=r*(T==='runner'?.85:.65);
+C(hx,0,r*hs,skin);
+if(T==='riot'){C(hx,0,r*hs*1.15,hit?'#fff':'#6f8da8');ctx.fillStyle='#10161c';ctx.fillRect(hx+r*.05,-r*hs*.6,r*hs*.7,r*hs*1.2)}
+else if(T==='necro'){ctx.fillStyle=hit?'#fff':'#2e2250';ctx.beginPath();ctx.moveTo(hx-r*.3,-r*.5);ctx.lineTo(hx+r*.5,0);ctx.lineTo(hx-r*.3,r*.5);ctx.fill();C(hx+r*.15,-r*.12,r*.07,'#d6b3ff');C(hx+r*.15,r*.12,r*.07,'#d6b3ff')}
+else{const ec=T==='boss'?'#ffd27a':T==='spitter'?'#baffd5':'#ff3b30',er=Math.max(1.8,r*.09);C(hx+r*.18,-r*hs*.45,er,ec);C(hx+r*.18,r*hs*.45,er,ec);
+if(T==='spitter')C(hx+r*.3,0,r*.14,'#7affb0');else{ctx.strokeStyle='rgba(60,0,0,.7)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(hx+r*.3,-r*.12);ctx.lineTo(hx+r*.3,r*.12);ctx.stroke()}}
+if(T==='boss'){ctx.fillStyle=bc;for(const s2 of[-1,1]){ctx.beginPath();ctx.moveTo(hx-r*.1,s2*r*.3);ctx.lineTo(hx-r*.35,s2*r*.75);ctx.lineTo(hx+r*.1,s2*r*.4);ctx.fill()}
+if(bk===1){ctx.fillStyle='#f0efe6';for(const s2 of[-1,1]){ctx.beginPath();ctx.moveTo(hx+r*.2,s2*r*.2);ctx.lineTo(hx+r*.85,s2*r*.35);ctx.lineTo(hx+r*.3,s2*r*.4);ctx.fill()}}}
+ctx.restore();
+if(z.shd>0){ctx.strokeStyle='rgba(79,216,255,.85)';ctx.lineWidth=3;ctx.beginPath();ctx.arc(z.x,z.y,r*1.45,0,6.283);ctx.stroke();ctx.fillStyle='rgba(79,216,255,.1)';ctx.fill()}
+hb()}
+const TIPX=[27,34,41,46,42,38,41,40];
+function drawP(p){
+const wi=p.cur,mv=K.w||K.a||K.s||K.d,sw=mv&&p.dash<=0?Math.sin((G.t||0)*13):0;
+ctx.save();ctx.translate(p.x,p.y);
+ctx.fillStyle='rgba(0,0,0,.3)';ctx.beginPath();ctx.ellipse(0,5,17,12,0,0,6.283);ctx.fill();
+if(p.dash>0){ctx.fillStyle='rgba(143,227,255,.25)';ctx.beginPath();ctx.arc(0,0,26,0,6.283);ctx.fill()}
+if(p.rl>0&&p.rt>0){ctx.strokeStyle='#ffd27a';ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,0,25,-1.571,-1.571+6.283*(1-p.rl/p.rt));ctx.stroke()}
+ctx.rotate(p.a);ctx.globalAlpha=p.inv>0&&((p.inv*20)|0)%2?.45:1;
+const E=(x,y,rx,ry,c)=>{ctx.fillStyle=c;ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,6.283);ctx.fill()},Q=(x,y,w,h,c)=>{ctx.fillStyle=c;ctx.fillRect(x,y,w,h)},g1='#9aa3a8',g2='#343b40';
+E(-3+sw*5,-5.5,7,3.6,'#1b2024');E(-3-sw*5,5.5,7,3.6,'#1b2024');
+Q(-17,-7,11,14,'#55633f');ctx.strokeStyle='#2f3a25';ctx.lineWidth=1.5;ctx.strokeRect(-17,-7,11,14);
+E(0,0,9.5,13,'#3f6e92');E(1,0,5,11,'#2c5271');E(0,-11,4.5,4.5,'#3f6e92');E(0,11,4.5,4.5,'#3f6e92');
+switch(wi){
+case 0:Q(14,-2.5,13,5,g1);Q(14,-1.5,9,3,g2);break;
+case 1:Q(12,-3.5,21,7,g2);Q(14,-2.5,18,5,g1);Q(19,3.5,5,9,'#55595e');break;
+case 2:Q(8,-3,8,6,'#7a5230');Q(12,-5,29,3.5,g2);Q(12,1.5,29,3.5,g2);Q(38,-5,4,3.5,'#666');Q(38,1.5,4,3.5,'#666');break;
+case 3:Q(10,-2.5,37,5,'#8fb0c8');Q(18,-6.5,12,3,g2);Q(14,-.6,30,1.2,'#6fe3ff');E(47,0,2.5,2.5,'#6fe3ff');break;
+case 4:Q(6,-6.5,34,13,'#566f46');Q(38,-7.5,5,15,g2);Q(10,-9,6,3,g2);break;
+case 5:Q(12,-3.5,23,7,'#2e4a5a');ctx.strokeStyle='#8fe3ff';ctx.lineWidth=2;for(let k=0;k<3;k++){ctx.beginPath();ctx.arc(19+k*7,0,6,0,6.283);ctx.stroke()}E(37,0,3,3,'#bff3ff');break;
+case 6:Q(8,5,10,7,'#a0452d');Q(10,-3.5,22,7,'#7a3b2a');Q(32,-2,9,4,g2);E(43,0,2.5,2.5,'#7ad0ff');break;
+case 7:E(15,9,6,6,'#55595e');E(14,0,6,7,'#44494e');Q(12,-5.5,29,2.4,g2);Q(12,-1.2,29,2.4,g2);Q(12,3.1,29,2.4,g2);Q(40,-6.5,3,13,g1);break}
+ctx.lineCap='round';ctx.strokeStyle='#3f6e92';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(0,-10);ctx.lineTo(15,-3.5);ctx.moveTo(0,10);ctx.lineTo(19,3);ctx.stroke();
+E(16,-3.5,3,3,'#d9b38c');E(20,3,3,3,'#d9b38c');
+E(1,0,8,8.5,'#d9b38c');ctx.fillStyle='#2f4a3a';ctx.beginPath();ctx.arc(1,0,9,1.571,4.712);ctx.fill();E(-1,0,3,8,'#2f4a3a');
+ctx.fillStyle='rgba(255,246,192,.22)';ctx.beginPath();ctx.arc(9,0,8,0,6.283);ctx.fill();E(8,0,2.2,2.2,'#fff6c0');
+if(p.fl>0){const tx=TIPX[wi];ctx.fillStyle='rgba(255,214,120,.95)';ctx.beginPath();ctx.moveTo(tx,0);ctx.lineTo(tx+15,-5);ctx.lineTo(tx+8,0);ctx.lineTo(tx+15,5);ctx.closePath();ctx.fill();E(tx+2,0,3.5,3.5,'#fff')}
+ctx.restore()}
+function draw(){ctx.fillStyle='#2c3b42';ctx.fillRect(0,0,W,H);if(!G)return;const p=G.p,sx=(R()-.5)*G.sh,sy=(R()-.5)*G.sh,cx=cam.x-sx,cy=cam.y-sy;
+ctx.save();ctx.translate(-cx,-cy);
+ctx.fillStyle='#43565f';ctx.fillRect(0,0,WW,WH);ctx.strokeStyle='#587480';ctx.lineWidth=1;ctx.beginPath();
+for(let x=0;x<=WW;x+=100){ctx.moveTo(x,0);ctx.lineTo(x,WH)}for(let y=0;y<=WH;y+=100){ctx.moveTo(0,y);ctx.lineTo(WW,y)}ctx.stroke();
+ctx.strokeStyle='#b13a31';ctx.lineWidth=6;ctx.strokeRect(0,0,WW,WH);
+for(const u of G.U){const d=PU[u.t],y=u.y+Math.sin(u.b)*3;ctx.globalAlpha=u.l<4?.5+.5*Math.sin(u.l*12):1;ctx.fillStyle=d.c;ctx.shadowColor=d.c;ctx.shadowBlur=16;ctx.beginPath();ctx.arc(u.x,y,12,0,6.283);ctx.fill();ctx.shadowBlur=0;
+ctx.fillStyle='#111';ctx.font='bold 15px sans-serif';ctx.textAlign='center';ctx.fillText(d.l,u.x,y+5);ctx.globalAlpha=1}
+if(G.fx.turret>0){ctx.fillStyle='#8a949a';ctx.beginPath();ctx.arc(G.tur.x,G.tur.y,12,0,6.283);ctx.fill();ctx.save();ctx.translate(G.tur.x,G.tur.y);ctx.rotate(G.tur.a||0);ctx.fillStyle='#e8e2d0';ctx.fillRect(0,-3,20,6);ctx.restore()}
+for(const q of G.P){if(q.c==='arc'){ctx.strokeStyle='#8fe3ff';ctx.lineWidth=3;ctx.globalAlpha=Math.min(1,q.l*8);ctx.beginPath();ctx.moveTo(q.x,q.y);ctx.lineTo((q.x+q.x2)/2+R()*14-7,(q.y+q.y2)/2+R()*14-7);ctx.lineTo(q.x2,q.y2);ctx.stroke();ctx.globalAlpha=1}else if(q.c==='ring'){ctx.strokeStyle='#ffa13d';ctx.globalAlpha=q.l*4;ctx.lineWidth=4;ctx.beginPath();ctx.arc(q.x,q.y,q.r*(1-q.l*2.5),0,6.283);ctx.stroke();ctx.globalAlpha=1}
+else{ctx.globalAlpha=Math.min(1,q.l*3);ctx.fillStyle=q.c;ctx.fillRect(q.x-2,q.y-2,4,4);ctx.globalAlpha=1}}
+for(const z of G.Z)drawZ(z,p);
+for(const b of G.EB){ctx.fillStyle='#7fd3b0';ctx.beginPath();ctx.arc(b.x,b.y,6,0,6.283);ctx.fill()}
+for(const b of G.B){if(b.fl){const ag=1-Math.min(1,b.l/.55);ctx.globalAlpha=.6*(1-ag*.6);ctx.fillStyle=ag<.4?'#ffd27a':'#ff7a2a';ctx.beginPath();ctx.arc(b.x,b.y,4+ag*11,0,6.283);ctx.fill();ctx.globalAlpha=1}
+else{ctx.strokeStyle=b.ch>0?'#8fe3ff':b.cr?'#ffd27a':b.ex?'#ff8a3d':'#fff3c0';ctx.lineWidth=b.rk?4:b.ex?7:3;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(b.x-b.vx*.03,b.y-b.vy*.03);ctx.stroke();if(b.ex){ctx.fillStyle='#ffb25a';ctx.beginPath();ctx.arc(b.x,b.y,5,0,6.283);ctx.fill()}}}
+drawP(p);
+ctx.restore();
+if(G.state==='play'){ctx.strokeStyle='#ffe9a8';ctx.lineWidth=2;ctx.beginPath();ctx.arc(M.x,M.y,11,0,6.283);ctx.moveTo(M.x-18,M.y);ctx.lineTo(M.x-7,M.y);ctx.moveTo(M.x+7,M.y);ctx.lineTo(M.x+18,M.y);ctx.moveTo(M.x,M.y-18);ctx.lineTo(M.x,M.y-7);ctx.moveTo(M.x,M.y+7);ctx.lineTo(M.x,M.y+18);ctx.stroke()}
+if(G.flash>0){ctx.fillStyle=`rgba(200,40,30,${G.flash*.5})`;ctx.fillRect(0,0,W,H)}
+if(G.fx.rage>0){ctx.strokeStyle='rgba(194,75,214,.5)';ctx.lineWidth=10;ctx.strokeRect(0,0,W,H)}
+if(G.fx.freeze>0){ctx.fillStyle='rgba(108,199,255,.08)';ctx.fillRect(0,0,W,H)}}
+function hud(){if(!G)return;const S=G.S,p=G.p,w=WEAPONS[p.cur],ws=G.wp[p.cur];
+$('hp').style.width=Math.max(0,p.hp/S.hp*100)+'%';$('hpt').textContent=Math.ceil(p.hp)+' / '+S.hp+(p.dcd>0?'   dash '+p.dcd.toFixed(1)+'s'+(p.xc>0?' (+'+p.xc+' ready)':''):'   dash ready');
+$('pts').textContent=G.pts+' pts';$('wave').textContent='Wave '+G.wave;$('kills').textContent=G.d.n+(spd>1?' · '+spd+'×':'')+' · '+G.kills+' kills · '+(G.Z.length+G.q)+' left';
+$('ammo').innerHTML=`<div class="big">${w.n} Lv${ws.lvl}</div><div class="big" style="color:${ws.mag?'var(--bone)':'var(--blood)'}">${p.rl>0?'RELOADING':ws.mag+' / '+(ws.res===Infinity?'∞':ws.res)}</div><div class="sm">${G.own.map((o,i)=>o?(i===p.cur?'['+(i+1)+']':(i+1)):'').join(' ')}</div>`;
+$('fx').innerHTML=[['rage','Rage','#c24bd6'],['freeze','Freeze','#6cc7ff'],['turret','Turret','#e8e2d0'],['surge','Ammo surge','#d8c04a']].filter(f=>G.fx[f[0]]>0).map(f=>`<span style="color:${f[2]}">${f[1]} ${G.fx[f[0]].toFixed(1)}s</span>`).join('<br>')+(G.p.bl>0?'<br><span style="color:var(--blood)">Bloodlust ×'+G.p.bl+'</span>':'')+(G.p.fr>0?'<br><span style="color:var(--flare)">Frenzy '+G.p.fr.toFixed(1)+'s</span>':'')}
+function loop(t){const b=Math.min(.033,(t-last)/1000);last=t;if(G&&G.state==='play'){const n=Math.ceil(spd);for(let i=0;i<n&&G.state==='play';i++)update(b*spd/n)}draw();hud();requestAnimationFrame(loop)}
+
+const CL={
+dmg:['+25% damage to every gun per stack (multiplies with other damage perks)'],
+rate:['+20% fire rate per stack'],
+rel:['Reload takes 30% less time per stack'],
+mag:['+40% magazine size per stack'],
+hp:['+40 max HP and heal 40'],
+spd:['+12% movement speed per stack'],
+leech:['Heal 0.8 HP per kill per stack (total healing capped at 1.5% max HP per second)'],
+crit:['+15% crit chance per stack. Crits deal 2.5\u00d7 damage'],
+pierce:['Bullets pierce +1 zombie'],
+expl:['Killed zombies explode: radius 55 + 18 per stack, damage 25 \u00d7 your damage \u00d7 stacks. Blasts can chain 2 deep','Blasts hit 60% harder against burning zombies (needs Incendiary Rounds)',g=>g.perks.burn],
+rev:['Once per run: when you die, come back at 50% HP with a damaging shockwave'],
+scav:['+80 pickup range and +25% points per stack'],
+dash:['Dash cooldown \u00d70.6 per stack, +1 extra dash per cooldown, dashes go 25% farther','Dash Strike hits 40% harder per Phantom Step stack',g=>g.perks.ds],
+adr:['+35% fire rate while below 40% HP'],
+snip:['+6% damage per 100px a bullet has travelled (max at 900px)','Rail Rifle gets 2.5\u00d7 this bonus (+15% per 100px)',g=>g.own[3]],
+pb:['+50% damage to zombies within 170px','Shotgun gets +90% instead of +50%',g=>g.own[2]],
+gs:['Pistol only: +60% damage and +40% fire rate'],
+hose:['Fire rate ramps up to +50% while you keep firing (resets after 0.5s idle)','SMG ramps up twice as fast',g=>g.own[1]],
+demo:['+35% blast radius per stack on all explosions: Launcher, Volatile Blood, Shockwave Boots, Dash Strike pulse'],
+burn:['Hits set zombies on fire for 3s, dealing 10 \u00d7 your damage per second per stack. Fire ignores armor and shields'],
+frost:['Hits slow zombies by 40% for 2s. Slowed zombies take +40% damage','Also counts zombies slowed by Time Dilation or a Freeze pickup',g=>g.perks.tdl||g.fx.freeze>0],
+exec:['+80% damage to zombies below 30% HP per stack'],
+bl:['Each kill within 4s stacks +6% damage per perk stack (max 8 kill stacks)'],
+mom:['+20% damage while you are moving'],
+fr:['+40% fire rate for 4s after every reload'],
+ds:['Dashing through zombies deals 70 damage (+15% per wave up to wave 40) and ends in a shockwave. Wraiths are immune','+40% damage per Phantom Step stack',g=>g.perks.dash],
+thorn:['Zombies that hit you take 35 damage and get knocked back'],
+luck:['Zombies drop items twice as often'],
+desp:['Up to +60% damage as your HP drops (full bonus near 0 HP)'],
+eng:['Turrets last 4s longer, deal +50% damage and fire 30% faster'],
+ovk:['Excess damage on a kill hits the nearest zombie within 140px for 35% of the overkill per stack'],
+med:['Medkits heal 15% of max HP extra per stack'],
+tdl:['Dashing slows zombies within 320px by 40% for 2s per stack (Wraiths are immune)','Zombies slowed this way take +40% damage with Frostbite',g=>g.perks.frost],
+sen:['Every 25 kills a sentry turret deploys for 5s +3s per stack','Engineer boosts these turrets too',g=>g.perks.eng],
+nv:['A shockwave pulses around you every 6s: 90 damage per stack, radius 140','Demolitionist widens the pulse',g=>g.perks.demo],
+gam:['8% of shots deal 4\u00d7 damage per stack','Multiplies with crits',g=>g.perks.crit],
+arm:['Take 8% less damage per stack'],
+reg:['Regain 0.5% max HP per second per stack']};
+PERKS.forEach(k=>{const c=CL[k.id];if(!c)return;k.d=c[0];if(c[1]){k.syn=c[1];k.a=c[2]}else{delete k.syn;delete k.a}});
+const WI={'Pistol':['Reliable starter; bullets pierce 1 zombie.','low damage output in big crowds.'],
+'SMG':['Fast and steady, pierces 1, loves fire-rate perks.','low damage per hit, struggles vs Riot armor.'],
+'Shotgun':['Huge damage up close, pellets pierce 1 zombie.','falls off at range, slow shots.'],
+'Rail Rifle':['Pierces lines of zombies, hits harder at range, great vs bosses.','slow shots, tiny magazine.'],
+'Launcher':['Splash damage clears groups and ignores armor.','slow shots, small magazine, slow rockets.'],
+'Arc Gun':['Lightning chains to 3 nearby zombies at 60% damage.','short range, needs zombies close together.'],
+'Flamethrower':['Ignites everything it hits and pierces 5; fire ignores armor and shields.','short range (350px), so ranged enemies can out-range you.'],
+'Minigun':['Spins up to 2.2\u00d7 fire rate with a huge magazine.','slow start, low damage per bullet, long reload.']};
+function wst(i){const w=WEAPONS[i],s=G.S,lv=G.wp[i].lvl,m=(1+.25*Math.min(lv,5)+.15*Math.max(0,lv-5))*s.dmg*s.wd[i],rt=Math.max(.05,w.rate/1000/(s.rate*s.wr[i])),pel=w.pel+s.wx[i],mg=mag(i),rl=w.rl*s.rel*s.wl[i]/1000,dm=w.dmg*m,dps=dm*pel*mg/(mg*rt+rl);
+return 'Damage '+Math.round(dm)+(pel>1?' \u00d7'+pel:'')+' \u00b7 '+(1/rt).toFixed(1)+' shots/s \u00b7 Mag '+mg+' \u00b7 Reload '+rl.toFixed(1)+'s \u00b7 Range '+Math.round(w.spd*w.life)+'px \u00b7 Pierce '+(w.pierce+s.wp[i])+(w.expl?' \u00b7 Blast '+Math.round(w.expl*s.wb[i])+'px':'')+(w.chain||s.wch[i]?' \u00b7 Chains '+((w.chain||0)+s.wch[i]):'')+' \u00b7 ~'+Math.round(dps)+' DPS'}
+function spdHtml(){return [1,1.25,1.5,2].map(x=>'<button class="sb" style="'+(x===spd?'background:var(--flare)':'')+'" onclick="setSpd('+x+')">'+x+'\u00d7</button>').join('')}
+function setSpd(x){spd=x;const e=$('spdrow');if(e)e.innerHTML=spdHtml();if(G&&G.state==='shop')renderShop()}
+// ---- tutorial
+let tutI=0;
+const zt=(t,n,d,k,e)=>'<div class="tz"><canvas class="zs" width="84" height="92" data-z="'+t+'" data-k="'+(k||0)+'" data-e="'+(e||'')+'"></canvas><div><b class="k">'+n+'</b> '+d+'</div></div>';
+const dot=(c,t)=>'<li><span class="dot" style="background:'+c+'"></span>'+t+'</li>';
+const TUT=[
+['The goal',()=>'<ul><li>Survive wave after wave. Every kill earns <b>points</b>. Waves get bigger, tougher and faster, and every 5th wave is a <b>boss</b>.</li><li>Clear a wave and the <b>shop</b> opens: pick 1 perk, spend points, start the next wave.</li></ul><h2>The screen</h2><ul><li><b>Top left:</b> HP bar, dash status, points.</li><li><b>Top right:</b> wave, difficulty and speed, kills, zombies left.</li><li><b>Bottom right:</b> your gun, its level, ammo, and the numbers of guns you own.</li><li><b>Bottom left:</b> active effects (Rage, Freeze, Turret, Ammo surge, Bloodlust, Frenzy).</li><li><b>Center:</b> banners announce waves, bosses and new enemy types.</li></ul>'],
+['Move, aim, shoot, reload',()=>'<ul><li><b>WASD</b> move. <b>Mouse</b> aim (yellow crosshair). <b>Hold left click</b> to shoot.</li><li>Ammo is unlimited, but every magazine must be reloaded. It <b>reloads automatically</b> when empty. Press <b>R</b> to reload early. A yellow ring around you shows progress, and you cannot shoot while it fills.</li><li><b>1\u20138</b> switch to any gun you own (this cancels a reload).</li><li>Keep moving while you shoot: standing still is how you get surrounded.</li></ul>'],
+['Dash',()=>'<ul><li>Press <b>Shift</b> or <b>Space</b>.</li><li><b>Direction:</b> you dash the way you are holding <b>WASD</b> (diagonals work). If you are <b>not</b> holding a move key, you dash <b>toward your cursor</b>.</li><li>You are <b>invulnerable for 0.4s</b> while dashing. Wraith hits still land.</li><li>Cooldown is <b>3s</b>; the top-left HUD shows "dash ready" or the countdown. Perks add extra dashes, shockwaves, slowing, and damage.</li></ul>'],
+['Items dropped by zombies',()=>'<p>Glowing orbs drop from kills (more from brutes, always 3 from bosses) and vanish after 16s. Walk over them.</p><ul>'+dot('#e8493f','<b>+ Medkit</b>: heal 40 HP.')+dot('#d8c04a','<b>A Ammo Surge</b>: instant full magazine and no ammo use for 7s.')+dot('#6fd08c','<b>$ Cash</b>: bonus points.')+dot('#ff8a3d','<b>N Nuke</b>: hits every zombie for 60% of its max HP (25% for bosses).')+dot('#c24bd6','<b>R Rage</b>: double damage for 10s.')+dot('#6cc7ff','<b>F Freeze</b>: zombies move at 20% speed for 7s and cannot hit you. Wraiths ignore it.')+dot('#e8e2d0','<b>T Turret</b>: an auto-turret fires at nearby zombies for 14s.')+'</ul>'],
+['Zombies (1/2)',()=>zt('walker','Walker','Basic and slow. Free points, but they swarm.')+zt('runner','Runner','Fast and fragile. Shoot them first; they outrun you late.')+zt('brute','Brute','Huge health, hits hard, slow. Kite it and focus it down. Drops items often.')+zt('spitter','Spitter','Keeps its distance and spits acid every ~2s. Dash through the shots or kill it from range.')],
+['Zombies (2/2)',()=>'<div class="pg"><div>'+zt('bloater','Bloater','Pops when killed: 18 damage if you are within 100px. Kill it at range.')+zt('leaper','Leaper','Flashes pale, then lunges at you. Sidestep or dash.')+zt('riot','Riot','Armored: bullets deal 50% less. Use fire, explosions, dash shockwaves or Armor Piercing.')+'</div><div>'+zt('hive','Hive','Splits into 3 fast crawlers when killed. Explosions clean them up.')+zt('necro','Necromancer','Stays back and summons 2 walkers every 6s. Kill it first.')+zt('wraith','Wraith','Blinks next to you and hits through dash invulnerability. Immune to Freeze, Dash Strike and Time Dilation. Shoot it down fast.')+'</div></div>'],
+['Elites and bosses',()=>'<h2>Elites (from wave 20)</h2><ul><li><b style="color:#4fd8ff">Cyan ring:</b> shielded. The shield soaks 80% of its health in damage first. Fire ignores shields.</li><li><b style="color:#ffd23a">Yellow trails:</b> swift, 35% faster.</li><li><b style="color:#5dff7a">Green glow:</b> regenerates 3% health per second. Burst it down.</li></ul><h2>Bosses (every 5th wave, rotating)</h2><div class="pg"><div>'+zt('boss','Abomination','Summons walkers and runners.',0)+zt('boss','Juggernaut','Armored (40% less bullet damage) and charges at you.',1)+'</div><div>'+zt('boss','Warlock','Keeps its distance and fires 5-bolt volleys.',2)+zt('boss','Brood Mother','Spawns crawlers constantly and bursts into 8 more.',3)+'</div></div><p class="sm">Late waves also add a % of your max HP to every hit.</p>'],
+['Weapons',()=>'<p class="sm">Every gun costs 400 points (Pistol is free). Ammo is unlimited. Each can be upgraded to level 12 and has its own perks.</p><ul>'+WEAPONS.map(w=>'<li><b class="k">'+w.n+'</b>: '+WI[w.n][0]+' <span class="sm">Weak: '+WI[w.n][1]+'</span></li>').join('')+'</ul>'],
+['Perks, points and the shop',()=>'<ul><li><b>Perks:</b> after each wave pick 1 of 4. Most stack, up to a cap shown by the build line. Perk types you keep skipping appear less often (never never). Cards with a <b>Bonus</b> line have a real extra effect when you own the named gun or perk.</li><li><b>Armory:</b> buy guns, upgrade levels (+25% damage to level 5, then +15% each to 12).</li><li><b>Reroll:</b> one per shop, before you pick. <b>Patch up:</b> +25% HP, once per shop, price climbs.</li><li><b>Black Market:</b> permanent damage, fire rate and HP, extra perk picks (2 per shop), and an Emergency revive. Prices climb with every purchase.</li><li><b>Speed:</b> choose 1\u00d7, 1.25\u00d7, 1.5\u00d7 or 2\u00d7 on the title screen or in the shop. Everything runs faster.</li><li>Open this guide again any time from the title screen or the shop.</li></ul>']];
+function showTut(i){tutI=i||0;$('tut').className='show';renderTut()}
+function hideTut(){$('tut').className='';try{localStorage.setItem('dl_tut','1')}catch(e){}}
+function tutGo(d){tutI=Math.max(0,Math.min(TUT.length-1,tutI+d));renderTut()}
+function renderTut(){const [t,f]=TUT[tutI],last=tutI===TUT.length-1;
+$('tut').innerHTML='<div class="wrap"><div class="row" style="justify-content:space-between"><span class="sm">How to play \u00b7 '+(tutI+1)+' / '+TUT.length+'</span><button class="sb" onclick="hideTut()">Skip tutorial</button></div><h2 style="font-size:44px;margin-top:6px">'+t+'</h2>'+f()+'<div class="row" style="margin-top:18px"><button '+(tutI?'':'disabled')+' onclick="tutGo(-1)">Back</button><button onclick="'+(last?'hideTut()':'tutGo(1)')+'">'+(last?'Let\u2019s play':'Next')+'</button></div></div>';
+for(const c of $('tut').querySelectorAll('canvas[data-z]'))sprite(c)}
+function sprite(c){const t=c.dataset.z,bk=+c.dataset.k||0,e=c.dataset.e,sx=c.getContext('2d'),sc=ctx,sg=G,b=ZT[t],r=Math.min(b.r,t==='boss'?30:25);ctx=sx;G={t:1.3,fx:{freeze:0,rage:0,turret:0,surge:0}};
+try{sx.clearRect(0,0,c.width,c.height);drawZ({x:40,y:46,r,t,c:t==='boss'?['#7a4560','#8a5a2a','#3a5aa0','#a04a6a'][bk]:b.c,spd:b.spd,hp:1,max:1,fl:0,slow:0,burn:0,bk,shd:e==='s'?1:0,af:e==='w'?1:e==='r'?2:0},{x:300,y:46})}finally{ctx=sc;G=sg}}
+addEventListener('keydown',e=>{if(!$('tut').className)return;if(e.key==='Escape')hideTut();if(e.key==='ArrowRight')tutGo(1);if(e.key==='ArrowLeft')tutGo(-1)});
+try{if(!localStorage.getItem('dl_tut'))showTut(0)}catch(e){showTut(0)}
+requestAnimationFrame(loop);
+</script></body></html>
